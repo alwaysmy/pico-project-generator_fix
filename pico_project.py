@@ -1,43 +1,30 @@
 #!/usr/bin/env python3
+# -*- coding: UTF-8 -*-
 
 #
-# Copyright (c) 2020-2023 Raspberry Pi (Trading) Ltd.
+# Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
 
 import argparse
+from copy import copy
 import os
+from pyexpat import features
 import shutil
 from pathlib import Path
+import string
 import sys
 import subprocess
 import platform
 import shlex
 import csv
 
-# TODO: conditional import of tkinter if --gui option is used
-try:
-    import tkinter as tk
-    from tkinter import \
-        messagebox as mb, \
-        filedialog as fd, \
-        simpledialog as sd, \
-        ttk
-
-except ImportError:
-    print("[\033[91mERROR\033[0m] tkinter module not found")
-    sys.exit(1)
-
-
-class ExitCodes:
-    """Exit codes per reason; range starts at 0xA00 to avoid clashing with OS reserved exit codes"""
-    SUCCESS = 0
-    INVALID_PROJECT_PATH = -0xA01
-    EXISTING_PROJECT_NO_OVERWRITE = -0xA02
-    NO_COMPILER_FOUND = -0xA03
-    NO_PROJECT_NAME = -0xA04
-    PICO_SDK_NOT_FOUND = -0xA05
+import tkinter as tk
+from tkinter import messagebox as mb
+from tkinter import filedialog as fd
+from tkinter import simpledialog as sd
+from tkinter import ttk
 
 CMAKELIST_FILENAME = 'CMakeLists.txt'
 CMAKECACHE_FILENAME = 'CMakeCache.txt'
@@ -56,7 +43,7 @@ CONFIG_UNSET="Not set"
 # And any more to string below, space separator
 STANDARD_LIBRARIES = 'pico_stdlib'
 
-# Indexed on feature name, tuple contains the C file, the H file and the CMake project name for the feature. 
+# Indexed on feature name, tuple contains the C file, the H file and the CMake project name for the feature.
 # Some lists may contain an extra/ancillary file needed for that feature
 GUI_TEXT = 0
 C_FILE = 1
@@ -89,9 +76,8 @@ stdlib_examples_list = {
     'div' :     ("Low level HW Divider",    "divider.c",        "hardware/divider.h",   "hardware_divider")
 }
 
-debugger_list = ["SWD", "PicoProbe", "CMSIS-DAP Debug Probe"]
-debugger_config_list = ["raspberrypi-swd.cfg", "picoprobe.cfg", "cmsis-dap.cfg"]
-debug_server_args_list = ["", "", "\"-c\", \"adapter speed 5000\" "]
+debugger_list = ["DapLink","rasp-SWD", "PicoProbe"]
+debugger_config_list = ["cmsis-dap.cfg","raspberrypi-swd.cfg", "picoprobe.cfg"]
 
 DEFINES = 0
 INITIALISERS = 1
@@ -271,11 +257,11 @@ def RunGUI(sdkpath, args):
     app.configure(background=GetBackground())
 
     root.mainloop()
-    sys.exit(ExitCodes.SUCCESS)
+    sys.exit(0)
 
 def RunWarning(message):
     mb.showwarning('Raspberry Pi Pico Project Generator', message)
-    sys.exit(ExitCodes.SUCCESS)
+    sys.exit(0)
 
 import threading
 
@@ -640,8 +626,8 @@ class ProjectWindow(tk.Frame):
         mainFrame = tk.Frame(self, bg=GetBackground()).grid(row=optionsRow, column=0, columnspan=6, rowspan=12)
 
         # Need to keep a reference to the image or it will not appear.
-        self.logo = tk.PhotoImage(file=GetFilePath("logo_alpha.gif"))
-        logowidget = ttk.Label(mainFrame, image=self.logo, borderwidth=0, relief="solid").grid(row=0,column=0, columnspan=5, pady=10)
+        # self.logo = tk.PhotoImage(file=GetFilePath("logo_alpha.gif"))
+        # logowidget = ttk.Label(mainFrame, image=self.logo, borderwidth=0, relief="solid").grid(row=0,column=0, columnspan=5, pady=10)
 
         optionsRow += 2
 
@@ -659,7 +645,7 @@ class ProjectWindow(tk.Frame):
 
         locationlbl = ttk.Label(mainFrame, text='Location :').grid(row=optionsRow, column=0, sticky=tk.E)
         self.locationName = tk.StringVar()
-        self.locationName.set(os.getcwd() if not args.projectRoot else args.projectRoot)
+        self.locationName.set(os.path.abspath(os.path.join(os.getcwd(), "..")))
         locationEntry = ttk.Entry(mainFrame, textvariable=self.locationName).grid(row=optionsRow, column=1, columnspan=3, sticky=tk.W+tk.E, padx=5)
         locationBrowse = ttk.Button(mainFrame, text='Browse', command=self.browse).grid(row=3, column=4)
 
@@ -822,7 +808,7 @@ class ProjectWindow(tk.Frame):
 
     def quit(self):
         # TODO Check if we want to exit here
-        sys.exit(ExitCodes.SUCCESS)
+        sys.exit(0)
 
     def OK(self):
         # OK, grab all the settings from the page, then call the generators
@@ -928,7 +914,6 @@ def ParseCommandLine():
     parser.add_argument("-board", "--boardtype", action="store", default='pico', help="Select board type (see --boardlist for available boards)")
     parser.add_argument("-bl", "--boardlist", action="store_true", help="List available board types")
     parser.add_argument("-cp", "--cpath", help="Override default VSCode compiler path")
-    parser.add_argument("-root", "--projectRoot", help="Override default project root where the new project will be created")
 
     return parser.parse_args()
 
@@ -952,13 +937,13 @@ def GenerateMain(folder, projectName, features, cpp):
         # Add any includes
         for feat in features:
             if (feat in features_list):
-                o = f'#include "{features_list[feat][H_FILE]}"\n'
+                o = '#include "' +  features_list[feat][H_FILE] + '"\n'
                 file.write(o)
             if (feat in stdlib_examples_list):
-                o = f'#include "{stdlib_examples_list[feat][H_FILE]}"\n'
+                o = '#include "' +  stdlib_examples_list[feat][H_FILE] + '"\n'
                 file.write(o)
             if (feat in picow_options_list):
-                o = f'#include "{picow_options_list[feat][H_FILE]}"\n'
+                o = '#include "' +  picow_options_list[feat][H_FILE] + '"\n'
                 file.write(o)
 
         file.write('\n')
@@ -999,42 +984,46 @@ def GenerateMain(folder, projectName, features, cpp):
 
 
 def GenerateCMake(folder, params):
-   
-    filename = Path(folder) / CMAKELIST_FILENAME
-    projectName = params['projectName']
-    board_type = params['boardtype']
 
-    # OK, for the path, CMake will accept forward slashes on Windows, and thats
-    # seemingly a bit easier to handle than the backslashes
-    p = str(params['sdkPath']).replace('\\','/')
-    sdk_path = f'"{p}"'
-
-    cmake_header1 = (f"# Generated Cmake Pico project file\n\n"
+    cmake_header1 = ("# Generated Cmake Pico project file\n\n"
                  "cmake_minimum_required(VERSION 3.13)\n\n"
                  "set(CMAKE_C_STANDARD 11)\n"
                  "set(CMAKE_CXX_STANDARD 17)\n\n"
                  "# Initialise pico_sdk from installed location\n"
                  "# (note this can come from environment, CMake cache etc)\n"
-                 f"set(PICO_SDK_PATH {sdk_path})\n\n"
-                 f"set(PICO_BOARD {board_type} CACHE STRING \"Board type\")\n\n"
-                 "# Pull in Raspberry Pi Pico SDK (must be before project)\n"
-                 "include(pico_sdk_import.cmake)\n\n"
+                )
+
+    cmake_header2 = ("# Pull in Raspberry Pi Pico SDK (must be before project)\n"
+                "include(pico_sdk_import.cmake)\n\n"
                  "if (PICO_SDK_VERSION_STRING VERSION_LESS \"1.4.0\")\n"
                  "  message(FATAL_ERROR \"Raspberry Pi Pico SDK version 1.4.0 (or later) required. Your version is ${PICO_SDK_VERSION_STRING}\")\n"
                  "endif()\n\n"
-                 f"project({projectName} C CXX ASM)\n"
                 )
-    
+
     cmake_header3 = (
                 "\n# Initialise the Raspberry Pi Pico SDK\n"
                 "pico_sdk_init()\n\n"
                 "# Add executable. Default name is the project name, version 0.1\n\n"
                 )
 
+    filename = Path(folder) / CMAKELIST_FILENAME
+    projectName = params['projectName']
 
     file = open(filename, 'w')
 
     file.write(cmake_header1)
+
+    # OK, for the path, CMake will accept forward slashes on Windows, and thats
+    # seemingly a bit easier to handle than the backslashes
+
+    p = str(params['sdkPath']).replace('\\','/')
+    p = '\"' + p + '\"'
+
+    file.write('set(PICO_SDK_PATH ' + p + ')\n\n')
+    file.write('set(PICO_BOARD ' + params['boardtype'] + ' CACHE STRING "Board type")\n\n')
+
+    file.write(cmake_header2)
+    file.write('project(' + projectName + ' C CXX ASM)\n')
 
     if params['exceptions']:
         file.write("\nset(PICO_CXX_ENABLE_EXCEPTIONS 1)\n")
@@ -1052,62 +1041,62 @@ def GenerateCMake(folder, params):
                 v = "1"
             elif v == "False":
                 v = "0"
-            file.write(f'add_compile_definitions({c} = {v})\n')
+            file.write('add_compile_definitions(' + c + '=' + v + ')\n')
         file.write('\n')
 
     # No GUI/command line to set a different executable name at this stage
     executableName = projectName
 
     if params['wantCPP']:
-        file.write(f'add_executable({projectName} {projectName}.cpp )\n\n')
+        file.write('add_executable(' + projectName + ' ' + projectName + '.cpp )\n\n')
     else:
-        file.write(f'add_executable({projectName} {projectName}.c )\n\n')
+        file.write('add_executable(' + projectName + ' ' + projectName + '.c )\n\n')
 
-    file.write(f'pico_set_program_name({projectName} "{executableName}")\n')
-    file.write(f'pico_set_program_version({projectName} "0.1")\n\n')
+    file.write('pico_set_program_name(' + projectName + ' "' + executableName + '")\n')
+    file.write('pico_set_program_version(' + projectName + ' "0.1")\n\n')
 
     if params['wantRunFromRAM']:
-        file.write(f'# no_flash means the target is to run from RAM\n')
-        file.write(f'pico_set_binary_type({projectName} no_flash)\n\n')
+        file.write('# no_flash means the target is to run from RAM\n')
+        file.write('pico_set_binary_type(' + projectName + ' no_flash)\n\n')
 
     # Console output destinations
     if params['wantUART']:
-        file.write(f'pico_enable_stdio_uart({projectName} 1)\n')
+        file.write('pico_enable_stdio_uart(' + projectName + ' 1)\n')
     else:
-        file.write(f'pico_enable_stdio_uart({projectName} 0)\n')
+        file.write('pico_enable_stdio_uart(' + projectName + ' 0)\n')
 
     if params['wantUSB']:
-        file.write(f'pico_enable_stdio_usb({projectName} 1)\n\n')
+        file.write('pico_enable_stdio_usb(' + projectName + ' 1)\n\n')
     else:
-        file.write(f'pico_enable_stdio_usb({projectName} 0)\n\n')
+        file.write('pico_enable_stdio_usb(' + projectName + ' 0)\n\n')
 
     # If we need wireless, check for SSID and password
     # removed for the moment as these settings are currently only needed for the pico-examples
-    # but may be required in here at a later date.
+    # but may be requried in here at a later date.
     if False:
         if 'ssid' in params or 'password' in params:
             file.write('# Add any wireless access point information\n')
-            file.write(f'target_compile_definitions({projectName} PRIVATE\n')
+            file.write('target_compile_definitions(' + projectName + ' PRIVATE\n')
             if 'ssid' in params:
-                file.write(f'WIFI_SSID=\" {params["ssid"]} \"\n')
+                file.write('WIFI_SSID=\"' + params['ssid'] + '\"\n')
             else:
-                file.write(f'WIFI_SSID=\"${WIFI_SSID}\"')
+                file.write('WIFI_SSID=\"${WIFI_SSID}\"')
 
             if 'password' in params:
-                file.write(f'WIFI_PASSWORD=\"{params["password"]}\"\n')
+                file.write('WIFI_PASSWORD=\"' + params['password'] + '\"\n')
             else:
-                file.write(f'WIFI_PASSWORD=\"${WIFI_PASSWORD}\"')
+                file.write('WIFI_PASSWORD=\"${WIFI_PASSWORD}\"')
             file.write(')\n\n')
 
     # Standard libraries
     file.write('# Add the standard library to the build\n')
-    file.write(f'target_link_libraries({projectName}\n')
+    file.write('target_link_libraries(' + projectName + '\n')
     file.write("        " + STANDARD_LIBRARIES)
     file.write(')\n\n')
 
     # Standard include directories
     file.write('# Add the standard include files to the build\n')
-    file.write(f'target_include_directories({projectName} PRIVATE\n')
+    file.write('target_include_directories(' + projectName + ' PRIVATE\n')
     file.write("  ${CMAKE_CURRENT_LIST_DIR}\n")
     file.write("  ${CMAKE_CURRENT_LIST_DIR}/.. # for our common lwipopts or any other standard includes, if required\n")
     file.write(')\n\n')
@@ -1115,7 +1104,7 @@ def GenerateCMake(folder, params):
     # Selected libraries/features
     if (params['features']):
         file.write('# Add any user requested libraries\n')
-        file.write(f'target_link_libraries({projectName} \n')
+        file.write('target_link_libraries(' + projectName + '\n')
         for feat in params['features']:
             if (feat in features_list):
                 file.write("        " + features_list[feat][LIB_NAME] + '\n')
@@ -1123,7 +1112,7 @@ def GenerateCMake(folder, params):
                 file.write("        " + picow_options_list[feat][LIB_NAME] + '\n')
         file.write('        )\n\n')
 
-    file.write(f'pico_add_extra_outputs({projectName})\n\n')
+    file.write('pico_add_extra_outputs(' + projectName + ')\n\n')
 
     file.close()
 
@@ -1136,32 +1125,28 @@ def generateProjectFiles(projectPath, projectName, sdkPath, projects, debugger):
     os.chdir(projectPath)
 
     deb = debugger_config_list[debugger]
-    server_args = debug_server_args_list[debugger]
-
+    if isWindows:
+        gdb_path = 'arm-none-eabi-gdb'
+    else:
+        gdb_path = 'gdb-multiarch'
     for p in projects :
         if p == 'vscode':
             v1 = ('{\n'
                   '  // Use IntelliSense to learn about possible attributes.\n'
                   '  // Hover to view descriptions of existing attributes.\n'
                   '  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387\n'
-                  '  "version": "0.2.0",\n'
+                  '  "version": "0.2.1",\n'
                   '  "configurations": [\n'
-                  '    {\n'
-                  '      "name": "Cortex Debug",\n'
-                  '      "cwd": "${workspaceRoot}",\n'
+                  '    {\n'  #first configuration
+                  '      "name": "rp2040_core0 Debug with PyOcd",\n'
+                  '      "cwd": "${workspaceFolder}",\n'
                   '      "executable": "${command:cmake.launchTargetPath}",\n'
                   '      "request": "launch",\n'
                   '      "type": "cortex-debug",\n'
-                  '      "servertype": "openocd",\n'
-                  '      "gdbPath": "gdb-multiarch",\n'
-                  '      "serverArgs": [\n'
-                  f'        {server_args}\n'
-                  '      ],\n'
-                  '      "device": "RP2040",\n'
-                  '      "configFiles": [\n' + \
-                  f'        "interface/{deb}",\n' + \
-                  '        "target/rp2040.cfg"\n' + \
-                  '        ],\n' +  \
+                  '      "servertype": "pyocd",\n'
+                  '       //可以修改为rp2040_core1  \n'
+                  '      "targetId": "rp2040_core0",\n'
+                  '      "showDevDebugOutput": "none",\n'                  
                   '      "svdFile": "${env:PICO_SDK_PATH}/src/rp2040/hardware_regs/rp2040.svd",\n'
                   '      "runToEntryPoint": "main",\n'
                   '      // Give restart the same functionality as runToEntryPoint - main\n'
@@ -1169,7 +1154,91 @@ def generateProjectFiles(projectPath, projectName, sdkPath, projects, debugger):
                   '          "break main",\n'
                   '          "continue"\n'
                   '      ]\n'
-                  '    }\n'
+                  '    },\n'  #first configuration  
+                  '     //只调试Core0,适用于使用PicoDebug uf2自调试固件Openocd\n'
+                  '    {\n'  #second configuration
+                  '      "name": "Pico Core0 Debug openocd",\n'
+                  '      "cwd": "${workspaceRoot}",\n'
+                  '      "executable": "${command:cmake.launchTargetPath}",\n'
+                  '      "request": "launch",\n'
+                  '      "showDevDebugOutput": "raw",\n'    
+                  '      "type": "cortex-debug",\n'
+                  '      "servertype": "openocd",\n'
+                  '      //"gdbPath": "gdb-multiarch",\n'
+                  '      "gdbPath": "'+gdb_path+'",\n'
+                  '      "device": "RP2040",\n'
+                  '      "configFiles": [\n' + \
+                  '        "interface/' + deb + '",\n' + \
+                  '        "target/rp2040-core0.cfg"\n' + \
+                  '      ],\n' +  \
+                  '      "svdFile": "${env:PICO_SDK_PATH}/src/rp2040/hardware_regs/rp2040.svd",\n'
+                  '      "openOCDLaunchCommands": [ \n'
+                  '         //"transport select swd", \n'
+                  '         "adapter speed 4000", \n'
+                  '         "cmsis_dap_vid_pid 0x1209 0x2488",//限定pico-debug \n'
+                  '      ], \n'
+                  '      "runToEntryPoint": "main",\n'
+                  '      // Give restart the same functionality as runToEntryPoint - main\n'
+                  '      "postRestartCommands": [\n'
+                  '          "break main",\n'
+                  '          "continue"\n'
+                  '      ]\n'
+                  '    },\n'  #second configuration    
+                  '    {\n'  #third configuration
+                  '      "name": "RP2040 Debug Openocd",\n'
+                  '      "cwd": "${workspaceRoot}",\n'
+                  '      "executable": "${command:cmake.launchTargetPath}",\n'
+                  '      "request": "launch",\n'
+                  '      "showDevDebugOutput": "raw",\n'    
+                  '      "type": "cortex-debug",\n'
+                  '      "servertype": "openocd",\n'
+                  '      //"gdbPath": "gdb-multiarch",\n'
+                  '      "gdbPath": "'+gdb_path+'",\n'
+                  '      "device": "RP2040",\n'
+                  '      "configFiles": [\n' + \
+                  '        "interface/' + deb + '",\n' + \
+                  '        "target/rp2040.cfg"\n' + \
+                  '      ],\n' +  \
+                  '      "svdFile": "${env:PICO_SDK_PATH}/src/rp2040/hardware_regs/rp2040.svd",\n'
+                  '      "openOCDLaunchCommands": [ \n'
+                  '         //"transport select swd", \n'
+                  '         //"cmsis_dap_vid_pid 0x1a86 0x8012",//限定WCH-Link \n'                  
+                  '         "adapter speed 4000" \n'
+                  '      ], \n'
+                  '      "runToEntryPoint": "main",\n'
+                  '      // Give restart the same functionality as runToEntryPoint - main\n'
+                  '      "postRestartCommands": [\n'
+                  '          "break main",\n'
+                  '          "continue"\n'
+                  '      ]\n'
+                  '    },\n'  #third configuration     
+                  '    {\n'  #4th configuration
+                  '      "name": "RP2040 Core0 Debug Openocd",\n'
+                  '      "cwd": "${workspaceRoot}",\n'
+                  '      "executable": "${command:cmake.launchTargetPath}",\n'
+                  '      "request": "launch",\n'
+                  '      "type": "cortex-debug",\n'
+                  '      "servertype": "openocd",\n'
+                  '      //"gdbPath": "gdb-multiarch",\n'
+                  '      "gdbPath": "'+gdb_path+'",\n'
+                  '      "device": "RP2040",\n'
+                  '      "configFiles": [\n' + \
+                  '        "interface/' + deb + '",\n' + \
+                  '        "target/rp2040.cfg"\n' + \
+                  '      ],\n' +  \
+                  '      "svdFile": "${env:PICO_SDK_PATH}/src/rp2040/hardware_regs/rp2040.svd",\n'
+                  '      "openOCDLaunchCommands": [ \n'
+                  '         //"transport select swd", \n'
+                  '         "set USE_CORE 0",//new way to set core0 \n'                     
+                  '         "adapter speed 4000", \n'
+                  '      ], \n'
+                  '      "runToEntryPoint": "main",\n'
+                  '      // Give restart the same functionality as runToEntryPoint - main\n'
+                  '      "postRestartCommands": [\n'
+                  '          "break main",\n'
+                  '          "continue"\n'
+                  '      ]\n'
+                  '    },\n'  #4th configuration                                                
                   '  ]\n'
                   '}\n')
 
@@ -1182,7 +1251,7 @@ def generateProjectFiles(projectPath, projectName, sdkPath, projects, debugger):
                   '        "${env:PICO_SDK_PATH}/**"\n'
                   '      ],\n'
                   '      "defines": [],\n'
-                  f'      "compilerPath": "{compilerPath}",\n'
+                  f'      "compilerPath": "{compilerPath}",\n' #这里Windows下会出现反斜杠转义的问题，需要转换，不过这个文件下面没有生成就拉倒了 TODO:
                   '      "cStandard": "gnu17",\n'
                   '      "cppStandard": "gnu++14",\n'
                   '      "intelliSenseMode": "linux-gcc-arm",\n'
@@ -1202,19 +1271,24 @@ def generateProjectFiles(projectPath, projectName, sdkPath, projects, debugger):
                    '      "visibility": "hidden"\n'
                    '               },\n'
                    '    "build" : {\n'
-                   '      "visibility": "hidden"\n'
+                   '      "visibility": "default"\n'
                    '               },\n'
                    '    "buildTarget" : {\n'
                    '      "visibility": "hidden"\n'
                    '               },\n'
                    '     },\n'
+                   '   "cmake.generator": "MinGW Makefiles",                    \n'
+                   '    "cmake.environment": {                                  \n'
+                   '     "PICO_SDK_PATH": "${env:PICO_SDK_PATH}" \n'
+                   '    },                                                      \n'
                    '}\n')
 
             e1 = ( '{\n'
                    '  "recommendations": [\n'
                    '    "marus25.cortex-debug",\n'
                    '    "ms-vscode.cmake-tools",\n'
-                   '    "ms-vscode.cpptools"\n'
+                   '    "ms-vscode.cpptools",\n'
+                   '    "twxs.cmake"        \n'                   
                    '  ]\n'
                    '}\n')
 
@@ -1225,19 +1299,19 @@ def generateProjectFiles(projectPath, projectName, sdkPath, projects, debugger):
             os.chdir(VSCODE_FOLDER)
 
             filename = VSCODE_LAUNCH_FILENAME
-            file = open(filename, 'w')
+            file = open(filename, 'w',encoding='utf-8')
             file.write(v1)
             file.close()
 
-            file = open(VSCODE_C_PROPERTIES_FILENAME, 'w')
-            file.write(c1)
-            file.close()
+            # file = open(VSCODE_C_PROPERTIES_FILENAME, 'w',encoding='utf-8')
+            # file.write(c1) # 没用，直接去掉了
+            # file.close()
 
-            file = open(VSCODE_SETTINGS_FILENAME, 'w')
+            file = open(VSCODE_SETTINGS_FILENAME, 'w',encoding='utf-8')
             file.write(s1)
             file.close()
 
-            file = open(VSCODE_EXTENSIONS_FILENAME, 'w')
+            file = open(VSCODE_EXTENSIONS_FILENAME, 'w',encoding='utf-8')
             file.write(e1)
             file.close()
 
@@ -1284,7 +1358,7 @@ def DoEverything(parent, params):
             return
         else:
             print('Invalid project path')
-            sys.exit(ExitCodes.INVALID_PROJECT_PATH)
+            sys.exit(-1)
 
     oldCWD = os.getcwd()
     os.chdir(params['projectRoot'])
@@ -1307,13 +1381,13 @@ def DoEverything(parent, params):
                     return
             else:
                 print('There already appears to be a project in this folder. Use the --overwrite option to overwrite the existing project')
-                sys.exit(ExitCodes.EXISTING_PROJECT_NO_OVERWRITE)
+                sys.exit(-1)
 
         # We should really confirm the user wants to overwrite
         #print('Are you sure you want to overwrite the existing project files? (y/N)')
         #c = input().split(" ")[0]
         #if c != 'y' and c != 'Y' :
-        #    sys.exit(ExitCodes.SUCCESS)
+        #    sys.exit(0)
 
     # Copy the SDK finder cmake file to our project folder
     # Can be found here <PICO_SDK_PATH>/external/pico_sdk_import.cmake
@@ -1359,7 +1433,7 @@ def DoEverything(parent, params):
         if shutil.which("mingw32-make"):
             # Assume MinGW environment
             cmakeCmd = 'cmake -DCMAKE_BUILD_TYPE=Debug -G "MinGW Makefiles" ..'
-            makeCmd = 'mingw32-make '
+            makeCmd = 'mingw32-make'
 
         else:
             # Everything else assume nmake
@@ -1406,7 +1480,7 @@ c = CheckPrerequisites()
 ## TODO Do both warnings in the same error message so user does have to keep coming back to find still more to do
 
 if c == None:
-    m = f'Unable to find the `{COMPILER_NAME}` compiler\n'
+    m = 'Unable to find the `' + COMPILER_NAME + '` compiler\n'
     m +='You will need to install an appropriate compiler to build a Raspberry Pi Pico project\n'
     m += 'See the Raspberry Pi Pico documentation for how to do this on your particular platform\n'
 
@@ -1414,11 +1488,11 @@ if c == None:
         RunWarning(m)
     else:
         print(m)
-    sys.exit(ExitCodes.NO_COMPILER_FOUND)
+    sys.exit(-1)
 
 if args.name == None and not args.gui and not args.list and not args.configs and not args.boardlist:
     print("No project name specfied\n")
-    sys.exit(ExitCodes.NO_PROJECT_NAME)
+    sys.exit(-1)
 
 # Check if we were provided a compiler path, and override the default if so
 if args.cpath:
@@ -1432,7 +1506,7 @@ LoadConfigurations()
 p = CheckSDKPath(args.gui)
 
 if p == None:
-    sys.exit(ExitCodes.PICO_SDK_NOT_FOUND)
+    sys.exit(-1)
 
 sdkPath = Path(p)
 
@@ -1442,7 +1516,7 @@ boardtype_list.sort()
 if args.gui:
     RunGUI(sdkPath, args) # does not return, only exits
 
-projectRoot = Path(os.getcwd()) if not args.projectRoot else Path(args.projectRoot)
+projectRoot = Path(os.getcwd())
 
 if args.list or args.configs or args.boardlist:
     if args.list:
@@ -1463,7 +1537,7 @@ if args.list or args.configs or args.boardlist:
             print(board)
         print('\n')
 
-    sys.exit(ExitCodes.SUCCESS)
+    sys.exit(0)
 else :
     params={
         'sdkPath'       : sdkPath,

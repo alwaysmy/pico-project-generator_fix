@@ -1,3 +1,15 @@
+# 修改说明
+
+这是基于官方的修改版，适配了Windows环境，生成模板后的.vscode可以直接使用而不用再自己修改。
+去掉了生成的c_cppp_properties.json,没啥用，由于Windows下路径会出错，懒得给他改了直接去掉。
+去掉了超大的LOGO,修改工程生成目录到上一级而不是和python文件同级。
+
+添加了一个批处理文件Run-PicoProjGene-MinGW.bat用来直接点击启动生成器脚本，同时启动的时候要求输入工程名称，减少鼠标移动这一步操作。
+
+其余和官方版本没有区别。
+
+
+
 # pico-project-generator
 
 This is a command line or GUI tool, written in Python, to automatically generate a Pico C SDK Project.
@@ -5,18 +17,6 @@ This is a command line or GUI tool, written in Python, to automatically generate
 The tool will generate all required CMake files, program files and VSCode IDE files for the set of features requested.
 
 It will also add example code for any features and optionally for some standard library functions.
-
-### Notes for installation on Windows
-
-If you are using the [Windows installer](https://www.raspberrypi.com/news/raspberry-pi-pico-windows-installer/), the version of Python that is part of that package does not include TKInter
-support which is needed by this generator. You will need a standard install of Python as follows:
-
-1. Install the SDK with the Raspberry Pi "Pico setup for Windows" installer from https://github.com/raspberrypi/pico-setup-windows/.
-1. Install the full version of Python from https://www.python.org/downloads/windows/.
-1. Open a Pico - Developer Command Prompt window.
-1. `cd` to the location where you have downloaded/cloned the pico-project-generator.
-1. Launch using `py.exe` instead of `python.exe`. e.g. `py pico_project.py --gui`, this will use the latest
-installed version (the full version) of Python, instead of the embedded distribution included with the SDK.
 
 ## Command line
 
@@ -70,11 +70,11 @@ be added to the project using the `--feature` options, this can be used multiple
 
 ## GUI version
 
-The GUI version of the tool, run by adding `--gui` to the command line, uses `tkinter` to provide a platform-agnostic script that will run on Linux, Mac and Windows. All the options from the command line tool are also supported in the GUI. It may be necessary to install the `python3-tk` package for GUI support on Ubuntu/Debian platforms.
+The GUI version of the tool, run by adding `--gui` to the command line, uses `tkinter` to provide a platform agnostic script that will run on Linux, Mac and Windows. All the options from the command line tool are also supported in the GUI. It may be necessary to install the `python3-tk` package for GUI support on Ubuntu/Debian platforms.
 
 The board type selects the specific board header files to be used. The generator will scan the Pico SDK boards folder for all available boards.
 
-You can add specific features to your project by selecting them from the checkboxes on the GUI. This will ensure the build system adds the appropriate code to the build and also adds simple example code to the project showing how to use the feature. There are several options available, which provide the following functionality.
+You can add specific features to your project by selecting them from the check boxes on the GUI. This will ensure the build system adds the appropriate code to the build, and also adds simple example code to the project showing how to use the feature. There are a number of options available, which provide the following functionality.
 
 Pico Wireless Options | Description
 ----------------------|-----------

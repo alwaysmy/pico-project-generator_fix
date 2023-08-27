@@ -1,0 +1,40 @@
+@echo off
+chcp 65001
+set picosdkpath_temp=D:\MyProgramData\MCU_SDK\pico-sdk
+@REM mingw32-make.exe
+set make_bin_path=D:\MyProgramData\Toolchain\mingw-w64\mingw64\bin\
+set "env_path=%PATH%"
+
+set /p projectname=your projectname:
+echo your projectname %projectname%
+
+@REM 检测PICO_SDK，如果不存在就添加
+@echo off
+if not defined PICO_SDK_PATH (
+    echo Environment variable PICO_SDK_PATH is not set
+    echo now, set it to %picosdkpath_temp%
+    set PICO_SDK_PATH=%picosdkpath_temp%
+) else (
+    echo Environment variable PICO_SDK_PATH is set to %PICO_SDK_PATH%
+)
+
+
+
+@REM 检测PICO_SDK，如果不存在就添加（也可以用if not exist mingw32-make.exe来判断
+@echo off
+echo %PATH% | findstr /C:%make_bin_path%
+if %ERRORLEVEL%==0 (
+    @REM 存在就显示一下好了
+    echo mingw toolchain has been set to %make_bin_path%
+) else (
+    @REM 不存在就添加一下
+    echo mingw toolchain is not set
+
+    @REM 追加变量
+    @set "path=%env_path%;%make_bin_path%"
+    echo mingw toolchain is set to %make_bin_path%
+)
+
+
+
+python pico_project.py  %projectname%  -t pico_configs.tsv -p vscode --gui
