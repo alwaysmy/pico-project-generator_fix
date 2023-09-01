@@ -921,9 +921,9 @@ def ParseCommandLine():
 def GenerateMain(folder, projectName, features, cpp):
 
     if cpp:
-        filename = Path(folder) / (projectName + '.cpp')
+        filename = Path(folder) / ('main' + '.cpp')
     else:
-        filename = Path(folder) / (projectName + '.c')
+        filename = Path(folder) / ('main' + '.c')
 
     file = open(filename, 'w')
 
@@ -1048,9 +1048,9 @@ def GenerateCMake(folder, params):
     executableName = projectName
 
     if params['wantCPP']:
-        file.write('add_executable(' + projectName + ' ' + projectName + '.cpp )\n\n')
+        file.write('add_executable(' + projectName + ' ' + 'main' + '.cpp )\n\n')
     else:
-        file.write('add_executable(' + projectName + ' ' + projectName + '.c )\n\n')
+        file.write('add_executable(' + projectName + ' ' + 'main' + '.c )\n\n')
 
     file.write('pico_set_program_name(' + projectName + ' "' + executableName + '")\n')
     file.write('pico_set_program_version(' + projectName + ' "0.1")\n\n')
@@ -1288,6 +1288,7 @@ def generateProjectFiles(projectPath, projectName, sdkPath, projects, debugger):
                    '    "marus25.cortex-debug",\n'
                    '    "ms-vscode.cmake-tools",\n'
                    '    "ms-vscode.cpptools",\n'
+                   '    "chris-hock.pioasm",\n'
                    '    "twxs.cmake"        \n'                   
                    '  ]\n'
                    '}\n')
